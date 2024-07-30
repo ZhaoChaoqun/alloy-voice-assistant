@@ -10,17 +10,18 @@ from langchain.schema.messages import SystemMessage
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_openai import ChatOpenAI
+from langchain_openai import AzureChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pyaudio import PyAudio, paInt16
 from speech_recognition import Microphone, Recognizer, UnknownValueError
 
 load_dotenv()
 
+openai.api_type = 'azure'
 
 class WebcamStream:
     def __init__(self):
-        self.stream = VideoCapture(index=0)
+        self.stream = VideoCapture(0)
         _, self.frame = self.stream.read()
         self.running = False
         self.lock = Lock()
@@ -87,7 +88,7 @@ class Assistant:
         player = PyAudio().open(format=paInt16, channels=1, rate=24000, output=True)
 
         with openai.audio.speech.with_streaming_response.create(
-            model="tts-1",
+            model="tts-hd",
             voice="alloy",
             response_format="pcm",
             input=response,
@@ -136,11 +137,13 @@ class Assistant:
 
 webcam_stream = WebcamStream().start()
 
-model = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest")
+# model = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest")
 
 # You can use OpenAI's GPT-4o model instead of Gemini Flash
 # by uncommenting the following line:
-# model = ChatOpenAI(model="gpt-4o")
+model = AzureChatOpenAI(
+    azure_deployment="gpt-4o",
+    api_version="2024-05-01-preview")
 
 assistant = Assistant(model)
 
