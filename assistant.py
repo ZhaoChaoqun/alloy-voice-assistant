@@ -1,5 +1,5 @@
 import base64
-from threading import Lock, Thread
+from threading import Lock, Thread, Event
 
 import cv2
 import openai
@@ -67,6 +67,7 @@ class WebcamStream:
 class Assistant:
     def __init__(self, model):
         self.chain = self._create_inference_chain(model)
+        self.tts_stop_event = Event()
 
     def answer(self, prompt, image):
         if not prompt:
@@ -82,19 +83,28 @@ class Assistant:
         print("Response:", response)
 
         if response:
+            self.tts_stop_event.clear()
             self._tts(response)
 
     def _tts(self, response):
+        # def play_tts(response):
         player = PyAudio().open(format=paInt16, channels=1, rate=24000, output=True)
 
         with openai.audio.speech.with_streaming_response.create(
             model="tts-hd",
-            voice="alloy",
+            voice="nova",
             response_format="pcm",
             input=response,
         ) as stream:
             for chunk in stream.iter_bytes(chunk_size=1024):
+                if self.tts_stop_event.is_set():
+                    break
                 player.write(chunk)
+        player.stop_stream()
+        player.close()
+
+        # tts_thread = Thread(target=play_tts, args=(response,))
+        # tts_thread.start()
 
     def _create_inference_chain(self, model):
         SYSTEM_PROMPT = """
@@ -151,7 +161,11 @@ assistant = Assistant(model)
 def audio_callback(recognizer, audio):
     try:
         prompt = recognizer.recognize_whisper(audio, model="base", language="english")
-        assistant.answer(prompt, webcam_stream.read(encode=True))
+        if "cancel" in prompt.lower():
+            assistant.tts_stop_event.set()
+            print("TTS stopped by user command 'Cancel'")
+        else:
+            assistant.answer(prompt, webcam_stream.read(encode=True))
 
     except UnknownValueError:
         print("There was an error processing the audio.")
@@ -160,15 +174,20 @@ def audio_callback(recognizer, audio):
 recognizer = Recognizer()
 microphone = Microphone()
 with microphone as source:
-    recognizer.adjust_for_ambient_noise(source)
+    recognizer.adjust_for_ambient_noise(source, duration=0.5)
 
 stop_listening = recognizer.listen_in_background(microphone, audio_callback)
-
-while True:
-    cv2.imshow("webcam", webcam_stream.read())
-    if cv2.waitKey(1) in [27, ord("q")]:
-        break
-
-webcam_stream.stop()
-cv2.destroyAllWindows()
-stop_listening(wait_for_stop=False)
+print("Listening...")
+try:
+    while True:
+        cv2.imshow("webcam", webcam_stream.read())
+        # 27 means ESC key
+        if cv2.waitKey(1) in [27, ord("q")]:
+            break
+except KeyboardInterrupt:
+    print("Program interrupted by user")
+finally:
+    webcam_stream.stop()
+    cv2.destroyAllWindows()
+    stop_listening(wait_for_stop=False)
+    assistant.tts_stop_event.set()
